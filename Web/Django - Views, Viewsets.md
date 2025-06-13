@@ -3,7 +3,10 @@ The view will decide what page you would show, which request methods u will allo
 
 There are two primary ways of setting up the view, CBV , FBV 
 
-* Similar to React however react used Class based hooks -> converted to Functionn based hook settings where as Django recommends FBV -> CBV as general good practice
+* Similar to React
+*     Class based hooks -> Function based hooks as good practice
+* Django recommends
+*     FBV -> CBV as good practice
 
 
 
