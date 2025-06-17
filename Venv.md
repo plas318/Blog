@@ -2,8 +2,6 @@ Now a days containerized code such as docker is very popular, though we still wo
 
 Venv is a popular way to set up a virtual environment in python to avoid conflicting versions and modules for different python codes.
 
-It is always confusing to set up a venv in python this is to memo those methods.
-
 
 ### Setting up VENV
 
@@ -17,3 +15,7 @@ can specify the python version by adding the version upfront
 
 using the virtualenv module installed via pip
 can specify the python version by adding --python=python3.11 at the back
+
+
+
+It is always confusing to set up a venv in python this is to memo those methods.
