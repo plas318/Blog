@@ -1,4 +1,4 @@
-Nowadays containerized code such as docker is very popular, though we still would like to segregate our modules and environment for our project.
+Now a days containerized code such as docker is very popular, though we still would like to segregate our modules and environment for our project.
 
 Venv is a popular way to set up a virtual environment in python to avoid conflicting versions and modules for different python codes.
 
