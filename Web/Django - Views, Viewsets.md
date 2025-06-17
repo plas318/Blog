@@ -4,14 +4,17 @@ The view will decide what page you would show, which request methods u will allo
 
 There are two primary ways of setting up the view, CBV , FBV 
 
-* Similar to React
-*     Class based hooks -> Function based hooks as good practice
-* Django recommends
-*     FBV -> CBV as good practice
+ Similar to React
+     Class based hooks -> Function based hooks as good practice
+
+     
+ Django recommends
+     FBV -> CBV as good practice
 
 
 
-​### HTTP Methods
+​
+### HTTP Methods
 
 - Standard : GET, POST, PUT, PATCH, DELETE
 ​
@@ -86,7 +89,7 @@ Once the data is sent through json, the frontend renders the view page based on 
 
 ## ViewSets
 
-Viewset basically groups up the functions for the view
+Viewset groups the functions for the view
 
 the login view above only allows one method from the user : POST request to login,
 
@@ -148,8 +151,10 @@ http_method_names : allows to define the http methods this View accepts
 
 get_permissions is a function defined within the drf package,
 
+
 I've orverrided the function in order to permit certain actions (methods) based on the user's state of authentication and authority.
 i.e) checks if user is an admin, or the owner of the post to give update, delete access.
+
 
 I've also overrided the destroy function -> (delete) method function to not remove the user instance, but to change it's state to "intactive"
 this way the db doesn't suffer from having to cascade a lot of data and causing performance to suffer in some cases
@@ -175,39 +180,11 @@ API view is the most fundamental flexible customized function where you can defi
 It is more tedious to create since you have to write all the code and perhaps repeat code for situations where a generic view or viewset might exist.
 
 ```
-class SalesHistoryListView(APIView):
-    '''
-    SalesHistoryView List, Post View
-
-    *query performance differs by using select_related, and prefetch related
-    '''
-
-    @extend_schema(
-    methods=['get'],
-    parameters= [
-        OpenApiParameter('hospital_id', OpenApiTypes.STR, OpenApiParameter.QUERY, required= False, description='Filters result based on hospital id(요양기호) e.g. JDQ4MTAxMiM1MSMkMSMkMCMkODkkMzgxMzUxIzExIyQyIyQzIyQwMCQyNjE0ODEjNjEjJDEjJDgjJDgz '),
-        OpenApiParameter('page', OpenApiTypes.INT, OpenApiParameter.QUERY, required= False, description= 'Returns result based on page, default=1, items_per page=20'),
-        OpenApiParameter('ordering', OpenApiTypes.STR, OpenApiParameter.QUERY, required= False, description='Orders result based on fields | available fields: modified_at, (요양기호)hospital, status, (saleshistory)id'),
-    ],
-    responses={200: SalesHistorySerializer(many=True)},
-    # more customizations
-    )
     def get(self, request):
-        '''
-        no parameter:
-        
-        list: returns The entire list of sales history, ordered by modified date, and hospital id
-        
-        parameter hospital:
-        
-        list: returns The filtered list of saleshistory on a hospital id
-        params: hospital (hospital_id: str)
-
-        parameter page
-        '''
-        
         hospital = request.query_params.get('hospital', None)
-        
+        page = request.query_params.get('page', 1)
+        ordering = request.query_params.get('ordering', None)
+
         if hospital is not None:
             queryset = SalesHistory.objects.filter(hospital=hospital)\
                                           .order_by('-modified_at', 'hospital')\
@@ -215,8 +192,18 @@ class SalesHistoryListView(APIView):
         else:
             queryset = SalesHistory.objects.all().order_by('-modified_at', 'hospital')\
                                                 .select_related('hospital__manager', 'hospital__director')
-        
-        page = request.query_params.get('page', 1)
+```
+
+request.query_params.get allows you to retrieve a query param,
+if one passes a hospital it would retrieve a single hospital as a queryset, else return the list of hospitals
+
+select_related helps retrieve all the related instances in a single fetch
+
+manager and director is on a different table from the hospital (fk), each history object is going to search the director table and match the key, instead it joins the table which matches the fk and pull all the list at once 
+
+
+```
+ page = request.query_params.get('page', 1)
         ordering = request.query_params.get('ordering', None)
 
         if ordering is not None:
@@ -239,14 +226,183 @@ class SalesHistoryListView(APIView):
             from django.core.paginator import Paginator
             paginator = Paginator(queryset, 20)  # 20 per page
             queryset = paginator.get_page(page)
+```
 
-        serializer = SalesHistorySerializer(queryset, many=True)
+Likewise gets the page, ordering info as a query param, and returns the paginated queryset to limit the size
+
+```
+    def post(self, request, format=None):
+        '''
+        post: creates new saleshistory
+
+        required: hospital_id, status: (A,B,O,F,P), content
+        
+        permission: need to be manager of hospital
+        '''
+        
+        serializer = SalesHistoryCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    allowed_methods = ['get', 'post']
+```
+
+Creating a RetrieveUpdateDestroy view
+
+```
+class SalesHistoryDetailsView(APIView):
+    '''
+    SalesHistoryView Based on saleshistory id(pk)
+
+    ** Requires Permission (Hospital Manager) or Admin
+    '''
+    
+    def get_object(self, pk):
+        try:
+            return SalesHistory.objects.get(pk=pk)
+        except SalesHistory.DoesNotExist:
+            return Response({'pk not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    def check_owner(self, obj):
+        # Checks if user is the manager of the hospital
+        return (obj.hospital.manager == self.request.user) or (self.request.user.is_admin)
+    
+    @extend_schema(
+        methods=['GET'],
+        responses = {200: SalesHistorySerializer, 404:{'description': 'Invalid saleshistory id(pk)', 'example': {'description': 'Invalid saleshistory id(pk)'}}},
+        # more customizations
+    )
+    def get(self, request, pk=None):
+        '''
+        get: returns single saleshistory based on pk(id:int)
+        '''
+        history = self.get_object(pk)                            
+        serializer = SalesHistorySerializer(history)
         return Response(serializer.data, status=status.HTTP_200_OK)
+        
+    @extend_schema(
+        methods=['PUT'],
+        parameters=[
+          OpenApiParameter("id (history)", OpenApiParameter.PATH, required=True),
+        ],
+        request = SalesHistoryCreateSerializer,
+        responses = {200: SalesHistorySerializer, 
+                     404: {'description': 'Invalid saleshistory id(pk)', 'example': {'description': 'Invalid saleshistory id(pk)'}},
+                     403: {'description': 'Insufficient Permission', 'example': {'description': 'Insufficient Permission'}}}
+        # more customizations
+    )
+    def put(self, request, pk):
+        '''
+        put: updates saleshistory
+        permission: need to be manager of hospital & owner of history
+        '''
+        item = self.get_object(pk)
+        
+        # Checks for owner permission
+        if not self.check_owner(item):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        
+        serializer = SalesHistoryCreateSerializer(instance=item, data=request.data)
 
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(status=status.HTTP_404_NOT_FOUND)
+```
+
+```
+ def get_object(self, pk):
+        try:
+            return SalesHistory.objects.get(pk=pk)
+        except SalesHistory.DoesNotExist:
+            return Response({'pk not found'}, status=status.HTTP_404_NOT_FOUND)
+ def check_owner(self, obj):
+        # Checks if user is the manager of the hospital
+        return (obj.hospital.manager == self.request.user) or (self.request.user.is_admin)
+```
+
+Use the get_object method to find a single instance with the primary key
+
+check_owner acts as a permission function, since this is not a viewset it cannot use
+
+```
+def put(self, request, pk):
+        '''
+        put: updates saleshistory
+        permission: need to be manager of hospital & owner of history
+        '''
+        item = self.get_object(pk)
+        
+        # Checks for owner permission
+        if not self.check_owner(item):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        
+        serializer = SalesHistoryCreateSerializer(instance=item, data=request.data)
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(status=status.HTTP_404_NOT_FOUND)
 ```
 
 
+```
+class ProductView(generics.ListAPIView):
+    '''
+    제품정보 (Products View)
+    '''
+    queryset = 	Product.objects.all()
+    serializer_class = ProductSerializer
+    filter_backends = [SearchFilter, OrderingFilter, DjangoFilterBackend]
+    filterset_fields = ['hospital']
+    search_fields = ['name', 'hospital__name']
+    ordering_fields = ['name', 'hospital']
+    ordering = ['name']
+```
+
+This is a listview utilizing the djangofilterbackend module which allows you to filter the result based on specified attributes
 
 
 
+```
+    def get(self, request):
+        '''
+        list: returns various insightful stats in serialized forms  
+        '''
+        from django.db.models import Count, F
+        from django.db.models.functions import TruncDate
+    
+        # saleshistory count by status:
+        status_cnt = SalesHistory.objects.values('status').annotate(count = Count('status'))
+        ## 'status' : 'A', 'count': 2 // charfield, integerfield
 
+        status_cnt = StatusCountSerializer(status_cnt, many=True)
+
+        # saleshistory count by date:
+        date_cnt = SalesHistory.objects.annotate(date = TruncDate('modified_at')).values('date').annotate(count=Count('date'))
+
+        ## 'date':datetime.date(2023,5,16), 'count':2 // Datefield, integerfield
+        date_cnt = DateCountSerializer(date_cnt, many=True)
+        
+        # saleshistory count by user: 
+        user_cnt = SalesHistory.objects.values('hospital__manager').annotate(count=Count('hospital__manager'))
+        
+        user_cnt = UserCountSerializer(user_cnt, many=True)
+        ## 'hospital__manager' : 2, 'count': 2 // integerfield, integerfield
+
+        total_cnt = {
+            'user_cnt' : user_cnt.data,
+            'date_cnt' : date_cnt.data,
+            'status_cnt' : status_cnt.data
+        }
+        dashboard = DashboardSerializer(total_cnt)
+
+        return Response(dashboard.data, status=status.HTTP_200_OK)
+```
+
+This is a dashboard view that returns some stats of the current db state
+such as returning the history grouped by date, status or showing the quantity of history made by a certain user
+
+the anootate function allows to function as group by in sql and return some aggregation information of the query.
